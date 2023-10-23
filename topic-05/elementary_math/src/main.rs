@@ -1,9 +1,12 @@
-#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+use std::collections::HashSet;
+
+#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
 struct Node {
     id: i32,
     pair: (i32, i32),
     result: i32,
     is_pair: bool,
+    matched: bool,
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
@@ -97,26 +100,139 @@ impl Graph {
     }
 
     fn print_nodes(&self) {
-        println!("Pair nodes:");
+        println!("=== [ Pair nodes ] ===\nID   PAIR");
         for node in &self.nodes {
             if node.is_pair {
-                println!("{}: {:?}", node.id, node.pair);
+                println!("{} : {:?}", node.id, node.pair);
             }
         }
 
-        println!("Result nodes:");
+        println!("=== [ Result nodes ] ===\nID  RESULT");
         for node in &self.nodes {
             if !node.is_pair {
-                println!("{}: {:?}", node.id, node.result);
+                println!("{} : {:?}", node.id, node.result);
             }
         }
     }
 
     fn print_arcs(&self) {
-        println!("Arcs:");
+        println!("=== [ Arcs ] ===");
         for arc in &self.arcs {
-            println!("({}) [{}] ({})", arc.nodes.0, arc.operation, arc.nodes.1);
+            println!("({}) -- {} --  ({})", arc.nodes.0, arc.operation, arc.nodes.1);
         }
+    }
+
+    fn get_node_by_id(&self, id: i32) -> Option<Node> {
+        for node in &self.nodes {
+            if node.id == id {
+                return Some(node.clone());
+            }
+        }
+        None
+    }
+
+    fn set_node_matched(&mut self, id: i32) {
+        for node in &mut self.nodes {
+            if node.id == id {
+                node.matched = true;
+            }
+        }
+    }
+
+    // Breath-first search of non 
+    fn bfs(&self, node: Node) -> Vec<Node> {
+        let mut visited_nodes :Vec<Node> = Vec::new();
+        let mut queue :Vec<Node> = Vec::new();
+
+        queue.push(node);
+
+        while !queue.is_empty() {
+            let current_node = queue.remove(0);
+            visited_nodes.push(current_node);
+
+            for arc in &self.arcs {
+                if arc.nodes.0 == current_node.id && !current_node.matched {
+                    let next_node = self.get_node_by_id(arc.nodes.1).expect("Missing node");
+                    if !visited_nodes.contains(&next_node) && !queue.contains(&next_node) {
+                        queue.push(next_node);
+                    }
+                } else if arc.nodes.1 == current_node.id {
+                    let next_node = self.get_node_by_id(arc.nodes.0).expect("Missing node");
+                    if !visited_nodes.contains(&next_node) && !queue.contains(&next_node) {
+                        queue.push(next_node);
+                    }
+                }
+            }
+        }
+
+        visited_nodes
+    }
+
+    // Depth-first search
+    fn dfs(&self, node: Node) -> Option<Vec<Arc>> {
+        let mut visited_arcs :Vec<Arc> = Vec::new();
+        let mut visited_nodes :Vec<Node> = Vec::new();
+        let mut stack :Vec<Node> = Vec::new();
+
+        stack.push(node);
+
+        while !stack.is_empty() {
+            let current_node = stack.pop().unwrap(); // we pop the last element in the stack
+            visited_nodes.push(current_node);
+
+            for arc in &self.arcs {
+                if arc.nodes.0 == current_node.id  {
+                    let next_node = self.get_node_by_id(arc.nodes.1).expect("missing node");
+                    if !visited_nodes.contains(&next_node) && !stack.contains(&next_node) {
+                        visited_arcs.push(arc.clone());
+                        if next_node.is_pair && !next_node.matched {
+                            return Some(visited_arcs);
+                        }
+                        stack.push(next_node);
+                    }
+                } else if arc.nodes.1 == current_node.id {
+                    let next_node = self.get_node_by_id(arc.nodes.0).expect("missing node");
+                    if !visited_nodes.contains(&next_node) && !stack.contains(&next_node) {
+                        visited_arcs.push(arc.clone());
+                        if next_node.is_pair && !next_node.matched {
+                            return Some(visited_arcs);
+                        }
+                        stack.push(next_node);
+                    }
+                }
+            }
+        }
+
+        None
+    } 
+
+    fn hopcroft_karp(&mut self) -> Vec<(Node, Arc, Node)> {
+        let mut matching :Vec<(Node, Arc, Node)> = Vec::new();
+        let mut visited_nodes :HashSet<Node> = HashSet::new();
+        self.nodes.clone().into_iter().filter(|node| node.is_pair && !node.matched).for_each(|pair| {
+            let result = self.bfs(pair);
+            result.into_iter().for_each(|node| {visited_nodes.insert(node.clone());});
+        });
+
+        visited_nodes.into_iter().filter(|node| !node.is_pair && !node.matched).for_each(|node| {
+            for arc in match self.dfs(node) {
+                Some(arcs) => arcs,
+                None => Vec::new(),
+            } {
+                let pair_node = self.get_node_by_id(arc.nodes.0).expect("Missing node");
+                let result_node = self.get_node_by_id(arc.nodes.1).expect("Missing node");
+                matching.push((pair_node, arc, result_node));
+                self.set_node_matched(pair_node.id);
+                self.set_node_matched(result_node.id);
+            }
+                // Ricordati di rendere la rotta non più percorribiile
+            
+
+
+
+        });
+
+     Vec::new()
     }
 
 }
@@ -128,6 +244,7 @@ impl Node {
             pair: pair,
             result: 0,
             is_pair: true,
+            matched: false,
         }
     }
 
@@ -137,6 +254,7 @@ impl Node {
             pair: (0, 0),
             result: result,
             is_pair: false,
+            matched: false,
         }
     }
 }
@@ -157,5 +275,28 @@ mod tests {
 
         graph.print_nodes();
         graph.print_arcs();
+    }
+
+    #[test]
+    fn test_graph_bfs() {
+        let mut graph = Graph::new();
+        graph.initialize(vec![(1, 2), (1, 2), (2, 3)]);
+
+        let found_nodes = graph.bfs(graph.nodes[0]);
+        assert_eq!(found_nodes.len(), 8);   
+        for node in found_nodes {
+            println!("{:?}", node);
+        }
+    }
+
+    #[test]
+    fn test_graph_hopcroft_karp() {
+        let mut graph = Graph::new();
+        graph.initialize(vec![(1, 2), (1, 2), (2, 3)]);
+
+        let matching = graph.hopcroft_karp();
+        for pair in matching {
+            println!("{:?}", pair);
+        }
     }
 }
