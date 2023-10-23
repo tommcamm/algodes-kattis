@@ -1,5 +1,3 @@
-use std::collections::HashSet;
-
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 struct Node {
     id: i32,
@@ -33,10 +31,10 @@ impl Graph {
         let mut arcs :Vec<Arc> = Vec::new();
 
         for pair in pairs {
-            // Let's create the pair node first (if it does not exists)
+            // Let's create the pair node first
             let node = self.add_pair(pair);
 
-            // Let's create the result node (if it does not exists)
+            // Let's create the result node (if it does not exists) and add the arc to it
             self.add_result(pair, '+');
             self.add_arc(node, '+');
 
@@ -144,8 +142,8 @@ impl Node {
 }
 
 
-fn main() {
-    println!("Hello, world!");
+fn main(){
+    panic!("Still need to implement main...");
 }
 
 #[cfg(test)]
