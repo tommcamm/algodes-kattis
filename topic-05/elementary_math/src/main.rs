@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::{HashSet, VecDeque};
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
 struct Node {
@@ -19,6 +19,7 @@ struct Arc {
 struct Graph {
     nodes: Vec<Node>,
     arcs: Vec<Arc>,
+    deleted: HashSet<i32>,
 }
 
 impl Graph {
@@ -26,6 +27,7 @@ impl Graph {
         Graph {
             nodes: Vec::new(),
             arcs: Vec::new(),
+            deleted: HashSet::new(),
         }
     }
 
@@ -139,28 +141,25 @@ impl Graph {
         }
     }
 
-    // Breath-first search of non 
-    fn bfs(&self, node: Node) -> Vec<Node> {
-        let mut visited_nodes :Vec<Node> = Vec::new();
-        let mut queue :Vec<Node> = Vec::new();
+    // Used HashSet for bfs to make it more efficient
+    fn bfs(&self, node: Node) -> HashSet<i32> {
+        let mut visited_nodes = HashSet::new();
+        let mut queue = VecDeque::new();
+        queue.push_back(node.id);
+        visited_nodes.insert(node.id);
 
-        queue.push(node);
-
-        while !queue.is_empty() {
-            let current_node = queue.remove(0);
-            visited_nodes.push(current_node);
-
+        while let Some(current_node_id) = queue.pop_front() {
             for arc in &self.arcs {
-                if arc.nodes.0 == current_node.id && !current_node.matched {
-                    let next_node = self.get_node_by_id(arc.nodes.1).expect("Missing node");
-                    if !visited_nodes.contains(&next_node) && !queue.contains(&next_node) {
-                        queue.push(next_node);
-                    }
-                } else if arc.nodes.1 == current_node.id {
-                    let next_node = self.get_node_by_id(arc.nodes.0).expect("Missing node");
-                    if !visited_nodes.contains(&next_node) && !queue.contains(&next_node) {
-                        queue.push(next_node);
-                    }
+                let next_node_id = if arc.nodes.0 == current_node_id { 
+                    arc.nodes.1 
+                } else if arc.nodes.1 == current_node_id { 
+                    arc.nodes.0 
+                } else {
+                    continue;
+                };
+
+                if visited_nodes.insert(next_node_id) {
+                    queue.push_back(next_node_id);
                 }
             }
         }
@@ -179,9 +178,9 @@ impl Graph {
         while !stack.is_empty() {
             let current_node = stack.pop().unwrap(); // we pop the last element in the stack
             visited_nodes.push(current_node);
-
+            
             for arc in &self.arcs {
-                if arc.nodes.0 == current_node.id  {
+                if arc.nodes.0 == current_node.id && !self.deleted.contains(&arc.nodes.1)  {
                     let next_node = self.get_node_by_id(arc.nodes.1).expect("missing node");
                     if !visited_nodes.contains(&next_node) && !stack.contains(&next_node) {
                         visited_arcs.push(arc.clone());
@@ -190,7 +189,7 @@ impl Graph {
                         }
                         stack.push(next_node);
                     }
-                } else if arc.nodes.1 == current_node.id {
+                } else if arc.nodes.1 == current_node.id && !self.deleted.contains(&arc.nodes.0) {
                     let next_node = self.get_node_by_id(arc.nodes.0).expect("missing node");
                     if !visited_nodes.contains(&next_node) && !stack.contains(&next_node) {
                         visited_arcs.push(arc.clone());
@@ -206,33 +205,50 @@ impl Graph {
         None
     } 
 
-    fn hopcroft_karp(&mut self) -> Vec<(Node, Arc, Node)> {
-        let mut matching :Vec<(Node, Arc, Node)> = Vec::new();
-        let mut visited_nodes :HashSet<Node> = HashSet::new();
-        self.nodes.clone().into_iter().filter(|node| node.is_pair && !node.matched).for_each(|pair| {
-            let result = self.bfs(pair);
-            result.into_iter().for_each(|node| {visited_nodes.insert(node.clone());});
-        });
+    fn hopcroft_karp(&mut self) -> Vec<Arc> {
+        let mut matching :Vec<Arc> = Vec::new();
+        let mut unmatched_nodes :HashSet<Node> = HashSet::new();
 
-        visited_nodes.into_iter().filter(|node| !node.is_pair && !node.matched).for_each(|node| {
-            for arc in match self.dfs(node) {
-                Some(arcs) => arcs,
+        // Let's get all the unmatched nodes
+        self.nodes.iter()
+            .filter(|p| p.is_pair && !p.matched)
+            .flat_map(|node| self.bfs(node.clone()))
+            .for_each(|node| {unmatched_nodes.insert(self.get_node_by_id(node).expect("can't find node"));});
+
+        unmatched_nodes.iter().filter(|p| !p.is_pair && !p.matched).for_each(|node| {
+            let path = match self.dfs(node.clone()) {
+                Some(p) => p,
                 None => Vec::new(),
-            } {
+            };
+
+            // We delete the nodes we matched (if any) and set it matched
+            path.into_iter().for_each(|arc| {
+                self.deleted.insert(arc.nodes.0);
+                self.set_node_matched(arc.nodes.0);
+                self.deleted.insert(arc.nodes.1);
+                self.set_node_matched(arc.nodes.1);
+                matching.push(arc);
+            });
+            
+        });
+        self.deleted.clear();
+
+
+         matching
+    }
+
+    fn print_output(&self, matching: Vec<Arc>, pairs: Vec<(i32, i32)>) {
+        for pair in pairs {
+            for arc in matching.clone() {
                 let pair_node = self.get_node_by_id(arc.nodes.0).expect("Missing node");
                 let result_node = self.get_node_by_id(arc.nodes.1).expect("Missing node");
-                matching.push((pair_node, arc, result_node));
-                self.set_node_matched(pair_node.id);
-                self.set_node_matched(result_node.id);
+
+                if pair_node.pair == pair {
+                    println!("{} {} {} = {}", pair_node.pair.0, arc.operation, pair_node.pair.1, result_node.result);
+                    break;
+                }
             }
-                // Ricordati di rendere la rotta non più percorribiile
-            
-
-
-
-        });
-
-     Vec::new()
+        }
     }
 
 }
@@ -261,7 +277,34 @@ impl Node {
 
 
 fn main(){
-    panic!("Still need to implement main...");
+    let mut buf = String::new();
+    let stdin = std::io::stdin();
+
+    stdin.read_line(&mut buf).expect("Failed to read line");
+
+    let n = buf.trim().parse::<i32>().expect("Invalid number of pairs");
+
+    let mut graph = Graph::new();
+    let mut pairs :Vec<(i32, i32)> = Vec::new();
+
+    for _ in 0..n {
+        buf.clear();
+        stdin.read_line(&mut buf).expect("Failed to read line");
+        let pair :Vec<i32> = buf.split_whitespace().map(|x| x.parse::<i32>().expect("Invalid number")).collect();
+        pairs.push((pair[0], pair[1]));
+    }
+
+    graph.initialize(pairs.clone());
+    
+    let matching = graph.hopcroft_karp();
+
+    if matching.len() < pairs.len() {
+        println!("impossible");
+    } else {
+        graph.print_output(matching, pairs);
+    }
+
+    
 }
 
 #[cfg(test)]
@@ -295,8 +338,45 @@ mod tests {
         graph.initialize(vec![(1, 2), (1, 2), (2, 3)]);
 
         let matching = graph.hopcroft_karp();
-        for pair in matching {
-            println!("{:?}", pair);
+
+        graph.print_nodes();
+        for arc in matching {
+            println!("{:?}", arc);
         }
+    }
+
+    #[test]
+    fn test_graph_hopcroft_karp_fail() {
+        let mut graph = Graph::new();
+        graph.initialize(vec![(1, 2), (1, 2), (1, 2), (1, 2), (3, 1)]);
+
+        let matching = graph.hopcroft_karp();
+
+        graph.print_nodes();
+        for arc in matching {
+            println!("{:?}", arc);
+        }
+    }
+
+    // test for execution time of hopcroft_karp, 10k pairs
+    #[test]
+    fn test_graph_hopcroft_karp_time() {
+        let mut graph = Graph::new();
+        let mut pairs :Vec<(i32, i32)> = Vec::new();
+        for i in 0..500 {
+            pairs.push((i, i));
+        }
+        
+        // Measure time from here
+        let start = std::time::Instant::now();
+        
+        graph.initialize(pairs);
+        graph.hopcroft_karp();
+        let end = std::time::Instant::now();
+
+        println!("Execution time: {:?}", end.duration_since(start));
+        //assert!(now.duration_since(now).as_secs() < 1);
+
+
     }
 }
